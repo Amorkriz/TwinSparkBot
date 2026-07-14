@@ -1,0 +1,5 @@
+# Reference fork (shallow clone, 202M) — not part of deliverable
+hermes-agent/
+
+# OS files
+.DS_Store

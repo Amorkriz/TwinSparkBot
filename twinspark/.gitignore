@@ -1,0 +1,19 @@
+# Byte-compiled / optimized / cache files
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment / secrets
+.env
+
+# Local state databases
+*.db
+
+# Virtual environments
+.venv/
+venv/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
