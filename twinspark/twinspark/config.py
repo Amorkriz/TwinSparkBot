@@ -51,6 +51,10 @@ class Config(BaseSettings):
     db_path: Path = Field(Path(DEFAULT_DB_PATH), alias="TWINSPARK_DB_PATH")
     skills_dir: Path = Field(Path(DEFAULT_SKILLS_DIR), alias="TWINSPARK_SKILLS_DIR")
 
+    # DingTalk integration (optional)
+    dingtalk_app_secret: str = Field("", alias="DINGTALK_APP_SECRET")
+    dingtalk_verify_signature: bool = Field(True, alias="DINGTALK_VERIFY_SIGNATURE")
+
     @field_validator("db_path", "skills_dir", mode="before")
     @classmethod
     def _expand_paths(cls, value: object) -> Path:

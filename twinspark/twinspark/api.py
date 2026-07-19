@@ -354,3 +354,50 @@ async def list_skills(
     """List the skills available to the agent."""
     skills = [SkillItem(**item) for item in loader.list_skills()]
     return SkillsResponse(skills=skills)
+
+
+@app.post("/v1/dingtalk/webhook")
+async def dingtalk_webhook(request: Request, agent: Agent = Depends(get_agent)):
+    """钉钉企业内部机器人回调端点"""
+    from twinspark.config import get_config
+    from twinspark.dingtalk import (
+        DingTalkCallbackBody, verify_dingtalk_signature, send_dingtalk_reply
+    )
+
+    config = get_config()
+    if not config.dingtalk_app_secret:
+        raise HTTPException(status_code=503, detail="DingTalk not configured")
+
+    # 1. 签名验证
+    if config.dingtalk_verify_signature:
+        timestamp = request.headers.get("Timestamp", "")
+        sign = request.headers.get("Sign", "")
+        if not verify_dingtalk_signature(timestamp, sign, config.dingtalk_app_secret):
+            raise HTTPException(status_code=401, detail="Invalid signature")
+
+    # 2. 解析请求体
+    body = await request.json()
+    callback = DingTalkCallbackBody(**body)
+
+    # 3. 提取用户消息
+    user_message = callback.text.get("content", "").strip()
+    if not user_message:
+        return {"code": 0, "msg": "empty message"}
+
+    # 4. 后台异步处理（立即返回 200）
+    async def _process():
+        try:
+            reply = await agent.run(user_message, session_id=callback.conversationId)
+            await send_dingtalk_reply(
+                callback.sessionWebhook, reply, callback.senderStaffId
+            )
+        except Exception:
+            logger.exception("DingTalk background processing failed")
+            await send_dingtalk_reply(
+                callback.sessionWebhook, "处理消息时出错，请稍后再试。"
+            )
+
+    asyncio.create_task(_process())
+
+    # 5. 立即返回
+    return {"code": 0, "msg": "ok"}
