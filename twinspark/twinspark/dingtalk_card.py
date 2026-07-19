@@ -220,12 +220,17 @@ class DingTalkCardClient:
                     return resp.json()
             except (httpx.HTTPStatusError, httpx.RequestError) as exc:
                 last_exc = exc
+                # 打印响应体帮助定位 400/403 等错误原因
+                resp_body = ""
+                if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+                    resp_body = exc.response.text
                 logger.warning(
-                    "DingTalk card API %s %s attempt %d failed: %s",
+                    "DingTalk card API %s %s attempt %d failed: %s | response: %s",
                     method,
                     url,
                     attempt + 1,
                     exc,
+                    resp_body,
                 )
                 if attempt < self._MAX_RETRIES:
                     await asyncio.sleep(1 * (attempt + 1))
