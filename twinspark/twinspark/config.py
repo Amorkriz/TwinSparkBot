@@ -55,6 +55,12 @@ class Config(BaseSettings):
     dingtalk_app_secret: str = Field("", alias="DINGTALK_APP_SECRET")
     dingtalk_verify_signature: bool = Field(True, alias="DINGTALK_VERIFY_SIGNATURE")
 
+    # DingTalk AI Card (optional, requires app_key + app_secret)
+    dingtalk_app_key: str = Field("", alias="DINGTALK_APP_KEY")
+    dingtalk_card_template_id: str = Field("", alias="DINGTALK_CARD_TEMPLATE_ID")
+    dingtalk_message_mode: str = Field("text", alias="DINGTALK_MESSAGE_MODE")
+    dingtalk_stream_interval_ms: int = Field(500, alias="DINGTALK_STREAM_INTERVAL_MS")
+
     @field_validator("db_path", "skills_dir", mode="before")
     @classmethod
     def _expand_paths(cls, value: object) -> Path:

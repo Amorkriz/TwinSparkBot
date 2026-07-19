@@ -62,6 +62,10 @@ class FakeConfig:
     def __init__(self, app_secret: str = APP_SECRET, verify: bool = True):
         self.dingtalk_app_secret = app_secret
         self.dingtalk_verify_signature = verify
+        self.dingtalk_message_mode = "text"
+        self.dingtalk_app_key = ""
+        self.dingtalk_card_template_id = ""
+        self.dingtalk_stream_interval_ms = 500
 
 
 # --------------------------------------------------------------------------- #

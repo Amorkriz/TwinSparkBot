@@ -19,7 +19,7 @@ import hashlib
 import hmac
 import logging
 import time
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import httpx
 from pydantic import BaseModel
@@ -165,3 +165,55 @@ async def send_dingtalk_reply(
                     )
             # Linear back-off: 1 s, 2 s, 3 s.
             await asyncio.sleep(1 * (attempt + 1))
+
+
+# ---------------------------------------------------------------------------
+# Card streaming
+# ---------------------------------------------------------------------------
+
+if TYPE_CHECKING:
+    from twinspark.core.agent import Agent
+
+
+async def process_dingtalk_card_stream(
+    agent: "Agent",
+    user_message: str,
+    conversation_id: str,
+    sender_staff_id: str = "",
+    session_webhook: str = "",
+) -> None:
+    """AI 卡片流式模式处理（后台任务）
+
+    1. 创建卡片（显示"思考中..."）
+    2. 调用 agent.run_stream() 逐块生成
+    3. 通过 stream_to_card() 定时推送更新
+    4. 异常时降级发送纯文本错误提示
+    """
+    from twinspark.config import get_config
+    from twinspark.dingtalk_card import (
+        DingTalkTokenManager, DingTalkCardClient, stream_to_card
+    )
+
+    config = get_config()
+
+    try:
+        token_mgr = DingTalkTokenManager(config.dingtalk_app_key, config.dingtalk_app_secret)
+        card_client = DingTalkCardClient(token_mgr, config.dingtalk_card_template_id)
+
+        # 创建卡片
+        card_id = await card_client.create_card(conversation_id)
+
+        # 流式生成 + 推送
+        stream = agent.run_stream(user_message, session_id=conversation_id)
+        await stream_to_card(
+            card_client, card_id, stream,
+            flush_interval=config.dingtalk_stream_interval_ms / 1000.0,
+        )
+
+    except Exception:
+        logger.exception("Card streaming failed, falling back to text")
+        # 降级：发送错误提示（不重复调用 agent 避免重复持久化）
+        try:
+            await send_dingtalk_reply(session_webhook, "消息处理出错，请稍后再试。", sender_staff_id)
+        except Exception:
+            logger.exception("Text fallback also failed")

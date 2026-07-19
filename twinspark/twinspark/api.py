@@ -361,7 +361,8 @@ async def dingtalk_webhook(request: Request, agent: Agent = Depends(get_agent)):
     """钉钉企业内部机器人回调端点"""
     from twinspark.config import get_config
     from twinspark.dingtalk import (
-        DingTalkCallbackBody, verify_dingtalk_signature, send_dingtalk_reply
+        DingTalkCallbackBody, verify_dingtalk_signature, send_dingtalk_reply,
+        process_dingtalk_card_stream,
     )
 
     config = get_config()
@@ -387,10 +388,17 @@ async def dingtalk_webhook(request: Request, agent: Agent = Depends(get_agent)):
     # 4. 后台异步处理（立即返回 200）
     async def _process():
         try:
-            reply = await agent.run(user_message, session_id=callback.conversationId)
-            await send_dingtalk_reply(
-                callback.sessionWebhook, reply, callback.senderStaffId
-            )
+            config = get_config()
+            if config.dingtalk_message_mode in ("card", "auto") and config.dingtalk_app_key:
+                await process_dingtalk_card_stream(
+                    agent, user_message, callback.conversationId,
+                    callback.senderStaffId, callback.sessionWebhook,
+                )
+            else:
+                reply = await agent.run(user_message, session_id=callback.conversationId)
+                await send_dingtalk_reply(
+                    callback.sessionWebhook, reply, callback.senderStaffId
+                )
         except Exception:
             logger.exception("DingTalk background processing failed")
             await send_dingtalk_reply(
