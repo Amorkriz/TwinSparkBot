@@ -378,7 +378,11 @@ async def dingtalk_webhook(request: Request, agent: Agent = Depends(get_agent)):
 
     # 2. 解析请求体
     body = await request.json()
-    callback = DingTalkCallbackBody(**body)
+    try:
+        callback = DingTalkCallbackBody(**body)
+    except Exception:
+        logger.warning("Failed to parse DingTalk callback body: %s", body)
+        return {"code": 0, "msg": "invalid body"}
 
     # 3. 提取用户消息
     user_message = callback.text.get("content", "").strip()
@@ -396,14 +400,16 @@ async def dingtalk_webhook(request: Request, agent: Agent = Depends(get_agent)):
                 )
             else:
                 reply = await agent.run(user_message, session_id=callback.conversationId)
-                await send_dingtalk_reply(
-                    callback.sessionWebhook, reply, callback.senderStaffId
-                )
+                if callback.sessionWebhook:
+                    await send_dingtalk_reply(
+                        callback.sessionWebhook, reply, callback.senderStaffId
+                    )
         except Exception:
             logger.exception("DingTalk background processing failed")
-            await send_dingtalk_reply(
-                callback.sessionWebhook, "处理消息时出错，请稍后再试。"
-            )
+            if callback.sessionWebhook:
+                await send_dingtalk_reply(
+                    callback.sessionWebhook, "处理消息时出错，请稍后再试。"
+                )
 
     asyncio.create_task(_process())
 

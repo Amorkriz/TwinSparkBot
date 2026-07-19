@@ -22,7 +22,7 @@ import time
 from typing import TYPE_CHECKING, Any, Optional
 
 import httpx
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -35,22 +35,24 @@ logger = logging.getLogger(__name__)
 class DingTalkCallbackBody(BaseModel):
     """Parsed DingTalk webhook callback request body.
 
-    Only required fields are mandatory; others are optional since DingTalk
-    may omit them depending on the message type or context.
+    All fields have sensible defaults so that DingTalk URL-verification
+    requests and edge-case payloads never trigger a Pydantic ValidationError.
+    Only ``msgtype`` and ``text`` are semantically required for processing;
+    everything else defaults to empty/neutral values.
     """
 
-    conversationId: str
-    senderNick: str
+    conversationId: str = ""
+    senderNick: str = ""
     senderStaffId: str = ""
-    text: dict  # {"content": "用户消息"}
+    text: dict = Field(default_factory=lambda: {"content": ""})
     msgtype: str = "text"
-    sessionWebhook: str
+    sessionWebhook: str = ""
     sessionWebhookExpiredTime: int = 0
+    conversationType: str = "2"
 
     # Optional fields that DingTalk may include
     msgId: Optional[str] = None
     createAt: Optional[int] = None
-    conversationType: Optional[str] = None
     atUsers: Optional[list[dict[str, Any]]] = None
     chatbotCorpId: Optional[str] = None
     chatbotUserId: Optional[str] = None
