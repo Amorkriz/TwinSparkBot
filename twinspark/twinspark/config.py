@@ -52,6 +52,11 @@ class Config(BaseSettings):
     skills_dir: Path = Field(Path(DEFAULT_SKILLS_DIR), alias="TWINSPARK_SKILLS_DIR")
 
     # DingTalk integration (optional)
+    dingtalk_mode: str = Field("disabled", alias="DINGTALK_MODE")
+    # Possible values: "disabled" | "stream" | "webhook"
+    # - disabled: DingTalk integration off
+    # - stream:   Stream mode (recommended, no public URL needed)
+    # - webhook:  Webhook mode (requires public HTTPS + ICP filing)
     dingtalk_app_secret: str = Field("", alias="DINGTALK_APP_SECRET")
     dingtalk_verify_signature: bool = Field(True, alias="DINGTALK_VERIFY_SIGNATURE")
 

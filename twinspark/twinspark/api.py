@@ -187,9 +187,32 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.skill_loader = skill_loader
     logger.info("TwinSpark API started; agent and skill loader ready.")
 
+    # Conditionally start DingTalk Stream mode
+    stream_manager = None
+    try:
+        from twinspark.config import get_config
+
+        config = get_config()
+        if config.dingtalk_mode == "stream":
+            from twinspark.dingtalk_stream import DingTalkStreamManager
+
+            stream_manager = DingTalkStreamManager(config)
+            await stream_manager.start(agent)
+            app.state.stream_manager = stream_manager
+            logger.info("DingTalk Stream client started.")
+    except Exception:  # noqa: BLE001 - non-fatal, log and continue
+        logger.warning(
+            "Failed to start DingTalk Stream mode", exc_info=True
+        )
+
     try:
         yield
     finally:
+        if stream_manager:
+            try:
+                await stream_manager.stop()
+            except Exception:  # noqa: BLE001
+                logger.warning("Error stopping stream manager", exc_info=True)
         try:
             await agent.aclose()
         except Exception:  # noqa: BLE001 - best-effort teardown
