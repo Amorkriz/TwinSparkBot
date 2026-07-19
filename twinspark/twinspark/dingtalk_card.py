@@ -110,9 +110,10 @@ class DingTalkCardClient:
     _STREAMING_URL = "https://api.dingtalk.com/v1.0/card/streaming"
     _MAX_RETRIES = 2
 
-    def __init__(self, token_manager: DingTalkTokenManager, template_id: str) -> None:
+    def __init__(self, token_manager: DingTalkTokenManager, template_id: str, robot_code: str = "") -> None:
         self._token_manager = token_manager
         self._template_id = template_id
+        self._robot_code = robot_code
 
     # ------------------------------------------------------------------
     # Public API
@@ -131,17 +132,19 @@ class DingTalkCardClient:
             The ``outTrackId`` used as the card instance identifier.
         """
         out_track_id = str(uuid.uuid4())
+        # openSpaceId 格式: dtv1.card//IM_GROUP.{conversationId}
+        open_space_id = f"dtv1.card//IM_GROUP.{conversation_id}"
         payload = {
             "cardTemplateId": self._template_id,
             "outTrackId": out_track_id,
-            "cardData": {"cardParamMap": {"content": content}},
-            "openSpaceModel": {
-                "conversationType": "GROUP",
-                "conversationId": conversation_id,
+            "openSpaceId": open_space_id,
+            "imGroupOpenDeliverModel": {
+                "robotCode": self._robot_code,
             },
+            "cardData": {"cardParamMap": {"content": content}},
         }
         await self._request_with_retry("POST", self._CREATE_URL, payload)
-        logger.debug("Card created: outTrackId=%s", out_track_id)
+        logger.debug("Card created: outTrackId=%s, space=%s", out_track_id, open_space_id)
         return out_track_id
 
     async def streaming_update(

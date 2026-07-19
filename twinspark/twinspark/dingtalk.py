@@ -200,7 +200,7 @@ async def process_dingtalk_card_stream(
 
     try:
         token_mgr = DingTalkTokenManager(config.dingtalk_app_key, config.dingtalk_app_secret)
-        card_client = DingTalkCardClient(token_mgr, config.dingtalk_card_template_id)
+        card_client = DingTalkCardClient(token_mgr, config.dingtalk_card_template_id, robot_code=config.dingtalk_app_key)
 
         # 创建卡片
         card_id = await card_client.create_card(conversation_id)

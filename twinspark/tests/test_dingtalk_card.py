@@ -160,7 +160,7 @@ class TestCardClient:
         # 验证请求包含正确的 template_id
         call_kwargs = mock_post.call_args[1]
         assert call_kwargs["json"]["cardTemplateId"] == "tpl-001"
-        assert call_kwargs["json"]["openSpaceModel"]["conversationId"] == "conv-001"
+        assert call_kwargs["json"]["openSpaceId"] == "dtv1.card//IM_GROUP.conv-001"
         assert call_kwargs["headers"]["x-acs-dingtalk-access-token"] == "test-token"
 
     async def test_streaming_update_sends_content(self, card_client):
