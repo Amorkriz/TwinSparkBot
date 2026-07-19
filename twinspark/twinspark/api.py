@@ -356,6 +356,12 @@ async def list_skills(
     return SkillsResponse(skills=skills)
 
 
+@app.get("/v1/dingtalk/webhook")
+async def dingtalk_webhook_verify():
+    """钉钉 URL 验证（GET 请求）"""
+    return {"code": 0, "msg": "ok"}
+
+
 @app.post("/v1/dingtalk/webhook")
 async def dingtalk_webhook(request: Request, agent: Agent = Depends(get_agent)):
     """钉钉企业内部机器人回调端点"""
