@@ -165,40 +165,122 @@ class Agent:
     async def _generate(
         self, messages: list[dict[str, str]], **llm_kwargs: Any
     ) -> str:
-        """Text-generation loop with a placeholder tool-dispatch skeleton.
+        """文本生成循环，支持工具调用分派。
 
-        Today ``registry.get_openai_schemas()`` returns ``[]``, so no tool
-        schemas are advertised, the model never emits ``tool_calls``, and the
-        loop makes exactly one text-generation call before returning.
-
-        The loop below is structured so tool support can be dropped in without
-        reshaping the control flow — see the TODOs.
+        当 ToolRegistry 中有工具注册时，将工具 schema 传递给模型，
+        并在模型请求工具调用时执行工具、收集结果、继续对话。
+        无工具注册时行为与此前完全一致（单轮文本生成）。
         """
         schemas = self.tools.get_openai_schemas()
         call_kwargs = dict(llm_kwargs)
         if schemas:
-            # When tools exist, advertise them to the model.
+            # 存在工具时才向模型广告 schema，保持无工具场景的调用参数不变
             call_kwargs.setdefault("tools", schemas)
 
         reply = ""
         for _round in range(self.max_tool_rounds):
-            reply = await self.llm.chat(messages, **call_kwargs)
+            # 无工具注册时，直接使用 chat() 获取纯文本回复，保持向后兼容
+            if not schemas:
+                reply = await self.llm.chat(messages, **call_kwargs)
+                break
 
-            # TODO(tools): The current LLMClient.chat() returns only the reply
-            # text, not the raw message (which would carry ``tool_calls``).
-            # When tools are introduced:
-            #   1. Surface the assistant message incl. ``tool_calls``.
-            #   2. If tool_calls present: append the assistant message, then for
-            #      each call resolve ``self.tools.get(name)``, invoke it
-            #      (``await tool.run(**args)`` when ``tool.is_async`` else
-            #      ``tool.run(**args)``), append a {"role": "tool", ...} result
-            #      message, and ``continue`` the loop to let the model react.
-            #   3. Otherwise ``break`` with the final text (current behaviour).
-            #
-            # No tools registered -> no tool_calls -> single text turn.
-            break
+            # 有工具时使用 chat_raw() 获取完整消息对象（含 tool_calls）
+            raw_msg = await self.llm.chat_raw(messages, **call_kwargs)
+            if raw_msg is None:
+                break
+
+            reply = raw_msg.content or ""
+            tool_calls = raw_msg.tool_calls
+
+            # 模型未请求工具调用 → 返回文本结束循环
+            if not tool_calls:
+                break
+
+            # 追加 assistant 消息（含 tool_calls 信息）到对话历史
+            # 严格遵循 OpenAI 的 function-calling 消息格式
+            assistant_msg: dict[str, Any] = {"role": "assistant"}
+            if raw_msg.content:
+                assistant_msg["content"] = raw_msg.content
+            assistant_msg["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in tool_calls
+            ]
+            messages.append(assistant_msg)
+
+            # 并发执行所有工具调用；return_exceptions=True 保证单个工具失败
+            # 不会中断整个循环，异常将作为结果单独处理
+            import asyncio
+
+            results = await asyncio.gather(
+                *[self._execute_tool_call(tc) for tc in tool_calls],
+                return_exceptions=True,
+            )
+
+            # 逐个追加工具执行结果到对话历史，供模型下一轮消费
+            for tc, result in zip(tool_calls, results):
+                if isinstance(result, Exception):
+                    content = f"执行错误: {result}"
+                else:
+                    content = str(result)
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": content,
+                    }
+                )
+            # 继续 for 循环，让模型对工具结果做出反应
 
         return reply
+
+    async def _execute_tool_call(self, tool_call: Any) -> str:
+        """执行单个工具调用，返回结果字符串。
+
+        该方法负责：
+        1. 从 ToolRegistry 中查找工具
+        2. 解析 JSON 参数
+        3. 根据工具的 is_async 标志选择同步或异步调用
+        4. 捕获所有异常，确保不会因单个工具失败而中断整个循环
+
+        Args:
+            tool_call: OpenAI 格式的 tool_call 对象，
+                       含 ``.function.name`` 和 ``.function.arguments``。
+
+        Returns:
+            工具执行结果的字符串表示；失败时返回可读的错误说明。
+        """
+        import json
+
+        name = tool_call.function.name
+        tool = self.tools.get(name)
+        if tool is None:
+            return f"错误：工具 '{name}' 未注册"
+
+        # 解析工具调用参数（模型输出的 arguments 是 JSON 字符串）
+        try:
+            args = json.loads(tool_call.function.arguments)
+        except json.JSONDecodeError as e:
+            return f"参数解析错误: {e}"
+
+        # 执行工具，区分同步/异步实现
+        try:
+            if tool.is_async:
+                result = await tool.run(**args)
+            else:
+                result = tool.run(**args)
+            return str(result) if result is not None else ""
+        except Exception as e:  # noqa: BLE001 - 工具异常不应打断整体循环
+            logger.warning(
+                "工具 '%s' 执行异常: %s", name, e, exc_info=True
+            )
+            return f"工具执行异常: {type(e).__name__}: {e}"
 
     # ------------------------------------------------------------------ #
     # Streaming turn

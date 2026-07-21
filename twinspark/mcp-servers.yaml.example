@@ -1,0 +1,27 @@
+# TwinSpark MCP 服务器配置示例
+# 将此文件复制为 ~/.twinspark/mcp-servers.yaml 并根据需要修改
+#
+# 支持的传输方式：
+#   - stdio: 通过子进程启动 MCP 服务器
+#   - sse: 通过 HTTP SSE 连接远程 MCP 服务器
+
+servers:
+  # 示例：文件系统 MCP 服务器（stdio 模式）
+  filesystem:
+    transport: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+    timeout: 120
+
+  # 示例：网页抓取 MCP 服务器（stdio 模式）
+  fetch:
+    transport: stdio
+    command: uvx
+    args: ["mcp-server-fetch"]
+    timeout: 60
+
+  # 示例：远程 MCP 服务器（SSE 模式）
+  # remote-server:
+  #   transport: sse
+  #   url: "http://localhost:8080/sse"
+  #   timeout: 60

@@ -257,6 +257,54 @@ class LLMClient:
         assert last_exc is not None
         raise last_exc
 
+    async def chat_raw(
+        self,
+        messages: list[dict],
+        *,
+        model: str | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """返回完整的 assistant 消息对象（含 tool_calls）。
+
+        与 chat() 采用相同的重试逻辑，但返回原始 Message 对象
+        而非仅文本内容，供 Agent 工具循环使用。
+
+        Args:
+            messages: OpenAI 格式的聊天消息列表。
+            model: 覆盖默认模型。
+            **kwargs: 额外请求参数（如 tools, temperature）。
+
+        Returns:
+            OpenAI ChatCompletionMessage 对象，包含 content 和 tool_calls 字段；
+            若响应为空则返回 None。
+
+        Raises:
+            openai.APIStatusError: 不可重试的客户端错误。
+            openai.APIError: 所有重试耗尽后的 API 错误。
+        """
+        params = self._build_params(
+            messages, model=model, stream=False, extra=kwargs
+        )
+
+        last_exc: BaseException | None = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                completion = await self._client.chat.completions.create(**params)
+                choices = completion.choices
+                if not choices:
+                    return None
+                return choices[0].message
+            except Exception as exc:  # noqa: BLE001 - reclassified below
+                last_exc = exc
+                if attempt < self.max_retries and is_retryable_error(exc):
+                    await self._sleep_before_retry(attempt, exc)
+                    continue
+                raise
+
+        # 不可达；满足类型检查器
+        assert last_exc is not None
+        raise last_exc
+
     async def stream(
         self,
         messages: list[dict],

@@ -205,14 +205,85 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "Failed to start DingTalk Stream mode", exc_info=True
         )
 
+    # ---------------------------------------------------------------------- #
+    # MCP（Model Context Protocol）客户端初始化                                 #
+    # 连接外部 MCP 服务器，发现并注册远程工具到全局 ToolRegistry。                 #
+    # 初始化失败仅记录警告日志，不阻止应用启动（降级运行策略）。                     #
+    # ---------------------------------------------------------------------- #
+    mcp_manager = None
+    try:
+        from twinspark.config import get_config, load_mcp_servers
+        from twinspark.tools.mcp import MCPManager
+        from twinspark.tools import registry  # 全局 ToolRegistry 单例
+
+        config = get_config()
+        if config.mcp_enabled:
+            # 从 YAML 配置文件加载 MCP 服务器定义
+            server_configs = load_mcp_servers(config.mcp_config_path)
+            if server_configs:
+                logger.info(
+                    "MCP 已启用，正在连接 %d 个 MCP 服务器...",
+                    len(server_configs),
+                )
+                # 将 config 中的 MCPServerConfig（pydantic）转为 manager 需要的格式
+                from twinspark.tools.mcp.manager import (
+                    MCPServerConfig as ManagerServerConfig,
+                )
+
+                manager_configs = [
+                    ManagerServerConfig(
+                        name=sc.name,
+                        transport=sc.transport,
+                        command=sc.command,
+                        args=sc.args,
+                        env=sc.env,
+                        url=sc.url,
+                        timeout=sc.timeout,
+                    )
+                    for sc in server_configs
+                ]
+                mcp_manager = MCPManager(manager_configs)
+                # 启动连接并发现工具，注册到全局 registry
+                await mcp_manager.start(registry)
+                # 保存到 app.state 供后续请求/关闭阶段使用
+                app.state.mcp_manager = mcp_manager
+                logger.info(
+                    "MCP 初始化完成: %s", repr(mcp_manager)
+                )
+            else:
+                logger.info(
+                    "MCP 已启用但配置文件中无服务器定义（路径: %s），跳过",
+                    config.mcp_config_path,
+                )
+        else:
+            logger.debug("MCP 客户端未启用（TWINSPARK_MCP_ENABLED != true）")
+    except Exception:  # noqa: BLE001 - MCP 初始化失败不阻止应用启动
+        logger.warning(
+            "MCP 客户端初始化失败，应用将在无 MCP 工具的情况下继续运行",
+            exc_info=True,
+        )
+        mcp_manager = None
+
     try:
         yield
     finally:
+        # ---------- MCP 关闭 ---------- #
+        # 优雅关闭所有 MCP 服务器连接，释放子进程和网络资源
+        if mcp_manager:
+            try:
+                await mcp_manager.stop()
+                logger.info("MCP 所有连接已关闭")
+            except Exception:  # noqa: BLE001 - 尽力释放资源
+                logger.warning("MCP 关闭时发生异常", exc_info=True)
+
+        # ---------- DingTalk Stream 关闭 ---------- #
         if stream_manager:
             try:
                 await stream_manager.stop()
             except Exception:  # noqa: BLE001
                 logger.warning("Error stopping stream manager", exc_info=True)
+
+        # ---------- Agent 关闭 ---------- #
         try:
             await agent.aclose()
         except Exception:  # noqa: BLE001 - best-effort teardown
